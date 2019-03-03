@@ -1,21 +1,33 @@
-from requests import get
+from requests import get, session
 from ftfy import fix_text
 from modules.html import get_title, query_selector, query_selector_all, extract_links_from_tags, get_description
 from lxml.html import fromstring
 from multiprocessing import Pool
 import json
+from time import sleep
+from concurrent.futures import ThreadPoolExecutor
 
 
 class VcSpider:
     pages = []
     url = 'https://vc.ru'
-    pool = Pool()
+    executor = ThreadPoolExecutor()
+    session = session()
 
     def __init__(self, limit=None):
         self._limit = limit
 
+    def _request(self, url):
+        response = self.session.get(url)
+
+        if response.status_code is 200:
+            return response
+
+        sleep(5)
+        return self._request(url)
+
     def _get_subs_links(self):
-        response = get(self.url + '/subs')
+        response = self._request(self.url + '/subs')
         html = response.content
         subs_selector = ".subsites_tune > .subsites_tune__list a"
         links = query_selector_all(fromstring(html), subs_selector)
@@ -48,7 +60,8 @@ class VcSpider:
         pass
 
     def _fetch_chunk(self, url, last_sorting_value, last_feed_id):
-        response = get(url + "/entries/more?last_id={}&last_sorting_value={}".format(last_feed_id, last_sorting_value))
+        response = self._request(
+            url + "/entries/more?last_id={}&last_sorting_value={}".format(last_feed_id, last_sorting_value))
         data = json.loads(response.content)
         inner = data['data']
         html = inner['items_html']
@@ -57,23 +70,25 @@ class VcSpider:
 
         return html, last_sorting_value, last_id
 
+    def _parse_feed(self, feed):
+        if self._is_limited():
+            return
+
+        link = self._get_news_link(feed)
+        feed_response = self._request(link)
+        feed_html = feed_response.content
+        title = fix_text(get_title(feed_html))
+        descr = fix_text(get_description(feed_html))
+        page = (link, (title, descr))
+        return page
+
     def _parse_page(self, etree):
         news = self._get_news(etree)
-        for feed in news:
-            if self._is_limited():
-                return
-
-            link = self._get_news_link(feed)
-            feed_response = get(link)
-            feed_html = feed_response.content
-            title = fix_text(get_title(feed_html))
-            descr = fix_text(get_description(feed_html))
-            page = (link, (title, descr))
-            print(page)
-            self.pages.append(page)
+        result = self.executor.map(self._parse_feed, news)
+        self.pages += result
 
     def _walk_sub(self, sub_link: str):
-        response = get(sub_link)
+        response = self._request(sub_link)
         html = response.content
         etree = fromstring(html)
         last_id = self._parse_last_id(etree)
@@ -95,7 +110,4 @@ class VcSpider:
                 return self.pages
 
             self._walk_sub(sub_link)
-
-        #     self.pool.apply_async(lambda x: self._walk_sub, args=(sub_link,))
-        # self.pool.close()
-        # self.pool.join()
+        return self.pages
