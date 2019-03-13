@@ -6,16 +6,23 @@ from multiprocessing import Pool
 import json
 from time import sleep
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
+
+
+def print_pages(pages: List[tuple]):
+    for page in pages:
+        print(page)
 
 
 class VcSpider:
-    pages = []
+    count = 0
     url = 'https://vc.ru'
     executor = ThreadPoolExecutor()
     session = session()
 
-    def __init__(self, limit=None):
+    def __init__(self, limit=None, on_batch=print_pages):
         self._limit = limit
+        self._on_batch = on_batch
 
     def _request(self, url):
         response = self.session.get(url)
@@ -79,13 +86,15 @@ class VcSpider:
         feed_html = feed_response.content
         title = fix_text(get_title(feed_html))
         descr = fix_text(get_description(feed_html))
-        page = (link, (title, descr))
+        page = (link, title, descr)
         return page
 
     def _parse_page(self, etree):
         news = self._get_news(etree)
-        result = self.executor.map(self._parse_feed, news)
-        self.pages += result
+        result = list(self.executor.map(self._parse_feed, news))
+
+        self.count += len(result)
+        self._on_batch(result)
 
     def _walk_sub(self, sub_link: str):
         response = self._request(sub_link)
@@ -101,13 +110,13 @@ class VcSpider:
             self._parse_page(fromstring(feeds))
 
     def _is_limited(self):
-        return len(self.pages) > self._limit
+        return self.count > self._limit
 
     def walk(self):
         subs = self._get_subs_links()
         for sub_link in subs:
             if self._is_limited():
-                return self.pages
+                return
 
             self._walk_sub(sub_link)
-        return self.pages
+        return
