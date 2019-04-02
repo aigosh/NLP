@@ -13,25 +13,37 @@ def print_pages(pages: List[tuple]):
     for page in pages:
         print(page)
 
+pool = Pool()
 
 class VcSpider:
     count = 0
     url = 'https://vc.ru'
     executor = ThreadPoolExecutor()
     session = session()
+    pool = Pool()
 
-    def __init__(self, limit=None, on_batch=print_pages):
+    def __init__(self, limit=None, on_batch=print_pages, retries=10):
         self._limit = limit
         self._on_batch = on_batch
+        self._retries = retries
 
-    def _request(self, url):
-        response = self.session.get(url)
-
-        if response.status_code is 200:
-            return response
-
+    def _request(self, url, retry=0):
         sleep(5)
-        return self._request(url)
+        try:
+            response = self.session.get(url, headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'})
+            if response.status_code is 200:
+                return response
+
+            if retry < self._retries:
+                print('retry on ' + str(response.status_code))
+                sleep(retry * 5)
+                return self._request(url, retry + 1)
+        except:
+            if retry < self._retries:
+                print('retry on error')
+                sleep(retry * 5)
+                # self.session = session()
+                return self._request(url, retry + 1)
 
     def _get_subs_links(self):
         response = self._request(self.url + '/subs')
@@ -96,7 +108,12 @@ class VcSpider:
         self.count += len(result)
         self._on_batch(result)
 
+        print(self.count)
+
     def _walk_sub(self, sub_link: str):
+        if self._is_limited():
+            return
+
         response = self._request(sub_link)
         html = response.content
         etree = fromstring(html)
@@ -114,9 +131,6 @@ class VcSpider:
 
     def walk(self):
         subs = self._get_subs_links()
-        for sub_link in subs:
-            if self._is_limited():
-                return
 
-            self._walk_sub(sub_link)
-        return
+        for sub in subs:
+            self._walk_sub(sub)

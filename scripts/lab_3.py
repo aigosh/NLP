@@ -7,10 +7,11 @@ if __name__ == '__main__':
 
     def write_pages_to_db(pages):
         write_pages(db, table_name, pages)
+        db.commit()
 
 
-    spider = VcSpider(limit=10, on_batch=write_pages_to_db)
+    spider = VcSpider(limit=100000, on_batch=write_pages_to_db)
     spider.walk()
 
-    print(read_pages(db, table_name))
+    print(len(read_pages(db, table_name)))
 

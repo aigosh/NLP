@@ -6,6 +6,7 @@ from typing import List
 def create_db(path: str, table_name: str):
     if not isfile(path):
         file = open(path, 'w')
+        file.close()
 
     db = connect(path)
     db.execute("CREATE TABLE IF NOT EXISTS {} (url text, title text, description text)".format(table_name))
